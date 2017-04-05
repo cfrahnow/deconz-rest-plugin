@@ -487,6 +487,8 @@ void LightNode::setHaEndpoint(const deCONZ::SimpleDescriptor &endpoint)
             case DEV_ID_ZLL_EXTENDED_COLOR_LIGHT:    m_type = QLatin1String("Extended color light"); m_hasColor = true; break;
             case DEV_ID_Z30_COLOR_TEMPERATURE_LIGHT: // fall through
             case DEV_ID_ZLL_COLOR_TEMPERATURE_LIGHT: m_type = QLatin1String("Color temperature light"); m_hasColor = true; m_colorMode = QLatin1String("ct"); break;
+	    case INNR_SMART_PLUG:		  m_type = QLatin1String("INNR Smart Plug"); m_hasColor = false; break;
+	    case NYCE_WINDOW_SENSOR:		  m_type = QLatin1String("NYCE Window Sensor"); m_hasColor = false; break;
             default:
                 break;
             }
@@ -511,7 +513,7 @@ void LightNode::setHaEndpoint(const deCONZ::SimpleDescriptor &endpoint)
 
     if (m_type.isEmpty())
     {
-        m_type = QLatin1String("Unknown");
+        m_type = QString::number(haEndpoint().profileId());//QLatin1String("Unknown");
     }
 }
 

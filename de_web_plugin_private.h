@@ -111,6 +111,9 @@
 #define DEV_ID_ZLL_CONTROL_BRIDGE           0x0840 // Control bridge
 #define DEV_ID_ZLL_ONOFF_SENSOR             0x0850 // On/Off sensor
 
+#define INNR_SMART_PLUG             	    0x0051 // INNR Smart Plug
+#define NYCE_WINDOW_SENSOR             	    0x0402 // NYCE Window/Door Sensor
+
 #define DEFAULT_TRANSITION_TIME 4 // 400ms
 #define MAX_ENHANCED_HUE 65535
 
@@ -764,6 +767,7 @@ public:
     void updateEtag(QString &etag);
     qint64 getUptime();
     void addLightNode(const deCONZ::Node *node);
+    void addOtherDeviceNode(const deCONZ::Node *node);
     void nodeZombieStateChanged(const deCONZ::Node *node);
     LightNode *updateLightNode(const deCONZ::NodeEvent &event);
     LightNode *getLightNodeForAddress(const deCONZ::Address &addr, quint8 endpoint = 0);

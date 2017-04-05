@@ -1465,6 +1465,188 @@ void DeRestPluginPrivate::addLightNode(const deCONZ::Node *node)
     }
 }
 
+
+/*! Adds new node(s) to node cache.
+    Only supported ZLL and HA nodes will be added.
+    \param node - the base for the LightNode
+ */
+void DeRestPluginPrivate::addOtherDeviceNode(const deCONZ::Node *node)
+{
+    DBG_Assert(node != 0);
+    if (!node)
+    {
+        return;
+    }
+
+    QList<deCONZ::SimpleDescriptor>::const_iterator i = node->simpleDescriptors().constBegin();
+    QList<deCONZ::SimpleDescriptor>::const_iterator end = node->simpleDescriptors().constEnd();
+
+    for (;i != end; ++i)
+    {
+        LightNode deviceNode;
+        deviceNode.setNode(0);
+        deviceNode.setIsAvailable(true);
+
+        // check if node already exist
+        LightNode *deviceNode2 = getLightNodeForAddress(node->address(), i->endpoint());
+
+        if (deviceNode2)
+        {
+            if (deviceNode2->node() != node)
+            {
+                deviceNode2->setNode(const_cast<deCONZ::Node*>(node));
+                DBG_Printf(DBG_INFO, "DeviceNode %s set node %s\n", qPrintable(deviceNode2->id()), qPrintable(node->address().toStringExt()));
+            }
+
+            deviceNode2->setManufacturerCode(node->nodeDescriptor().manufacturerCode());
+
+            if (!deviceNode2->isAvailable())
+            {
+                // the node existed before
+                // refresh all with new values
+                DBG_Printf(DBG_INFO, "DeviceNode %u: %s updated\n", deviceNode2->id().toUInt(), qPrintable(deviceNode2->name()));
+                deviceNode2->setIsAvailable(true);
+
+                deviceNode2->enableRead(READ_VENDOR_NAME |
+                                       READ_MODEL_ID |
+                                       READ_SWBUILD_ID |
+                                       READ_COLOR |
+                                       READ_LEVEL |
+                                       READ_ON_OFF |
+                                       READ_GROUPS |
+                                       READ_SCENES |
+                                       READ_BINDING_TABLE);
+
+                for (uint32_t i = 0; i < 32; i++)
+                {
+                    uint32_t item = 1 << i;
+                    if (deviceNode.mustRead(item))
+                    {
+                        deviceNode.setNextReadTime(item, queryTime);
+                        deviceNode.setLastRead(item, idleTotalCounter);
+                    }
+
+                }
+
+                queryTime = queryTime.addSecs(1);
+
+                //deviceNode2->setLastRead(idleTotalCounter);
+                updateEtag(deviceNode2->etag);
+            }
+
+            if (deviceNode2->uniqueId().isEmpty() || deviceNode2->uniqueId().startsWith("0x"))
+            {
+                QString uid;
+                union _a
+                {
+                    quint8 bytes[8];
+                    quint64 mac;
+                } a;
+                a.mac = deviceNode2->address().ext();
+                uid.sprintf("%02X:%02X:%02X:%02X:%02X:%02X:%02X:%02X-%02X",
+                            a.bytes[7], a.bytes[6], a.bytes[5], a.bytes[4],
+                            a.bytes[3], a.bytes[2], a.bytes[1], a.bytes[0],
+                            deviceNode.haEndpoint().endpoint());
+                deviceNode2->setUniqueId(uid);
+                deviceNode2->setNeedSaveDatabase(true);
+                updateEtag(deviceNode2->etag);
+            }
+
+            continue;
+        }
+
+        if (!i->inClusters().isEmpty())
+        {
+            if (i->profileId() == HA_PROFILE_ID)
+            {
+                // filter for supported devices
+                switch (i->deviceId())
+                {
+                case INNR_SMART_PLUG:
+		case NYCE_WINDOW_SENSOR:
+                    {
+                        deviceNode.setHaEndpoint(*i);
+                    }
+                    break;
+                default:
+                    {
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (deviceNode.haEndpoint().isValid())
+        {
+            deviceNode.setNode(const_cast<deCONZ::Node*>(node));
+            deviceNode.address() = node->address();
+            deviceNode.setManufacturerCode(node->nodeDescriptor().manufacturerCode());
+
+            QString uid;
+            union _a
+            {
+                quint8 bytes[8];
+                quint64 mac;
+            } a;
+            a.mac = deviceNode.address().ext();
+            uid.sprintf("%02X:%02X:%02X:%02X:%02X:%02X:%02X:%02X-%02X",
+                        a.bytes[7], a.bytes[6], a.bytes[5], a.bytes[4],
+                        a.bytes[3], a.bytes[2], a.bytes[1], a.bytes[0],
+                        deviceNode.haEndpoint().endpoint());
+            deviceNode.setUniqueId(uid);
+
+            openDb();
+            loadLightNodeFromDb(&deviceNode);
+            closeDb();
+
+            if (deviceNode.id().isEmpty())
+            {
+                openDb();
+                deviceNode.setId(QString::number(getFreeLightId()));
+                closeDb();
+            }
+
+            if (deviceNode.name().isEmpty())
+            {
+                deviceNode.setName(QString("Other Device %1").arg(deviceNode.id()));
+            }
+
+            // force reading attributes
+            deviceNode.enableRead(READ_VENDOR_NAME |
+                                 READ_MODEL_ID |
+                                 READ_SWBUILD_ID |
+                                 READ_COLOR |
+                                 READ_LEVEL |
+                                 READ_ON_OFF |
+                                 READ_GROUPS |
+                                 READ_SCENES |
+                                 READ_BINDING_TABLE);
+            for (uint32_t i = 0; i < 32; i++)
+            {
+                uint32_t item = 1 << i;
+                if (deviceNode.mustRead(item))
+                {
+                    deviceNode.setNextReadTime(item, queryTime);
+                    deviceNode.setLastRead(item, idleTotalCounter);
+                }
+            }
+            deviceNode.setLastAttributeReportBind(idleTotalCounter);
+            queryTime = queryTime.addSecs(1);
+
+            DBG_Printf(DBG_INFO, "DeviceNode %u: %s added\n", deviceNode.id().toUInt(), qPrintable(deviceNode.name()));
+            deviceNode.setNeedSaveDatabase(true);
+            nodes.push_back(deviceNode);
+            deviceNode2 = &nodes.back();
+
+            Q_Q(DeRestPlugin);
+            q->startZclAttributeTimer(checkZclAttributesDelay);
+            updateEtag(deviceNode2->etag);
+
+            queSaveDb(DB_LIGHTS, DB_LONG_SAVE_DELAY);
+        }
+    }
+}
+
 /*! Checks if a known node changed its reachable state changed.
     \param node - the base for the LightNode
     \return the related LightNode or 0
@@ -5038,6 +5220,7 @@ void DeRestPluginPrivate::nodeEvent(const deCONZ::NodeEvent &event)
     {
         addLightNode(event.node());
         addSensorNode(event.node());
+        addOtherDeviceNode(event.node());
     }
         break;
 
@@ -5052,6 +5235,7 @@ void DeRestPluginPrivate::nodeEvent(const deCONZ::NodeEvent &event)
     {
         addLightNode(event.node());
         addSensorNode(event.node());
+        addOtherDeviceNode(event.node());
     }
         break;
 
